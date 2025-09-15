@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>ClauseSense — Fake/Phish Detector</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;background:#f3f4f6;margin:0;padding:18px}
+    header{background:#0b5ed7;color:#fff;padding:14px;border-radius:8px;text-align:center;font-size:20px}
+    .wrap{max-width:980px;margin:20px auto}
+    .card{background:#fff;padding:16px;border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,0.06);margin-bottom:12px}
+    h2{color:#0b5ed7;margin-top:0}
+    input[type="file"]{display:block;margin:10px 0}
+    button{background:#0b5ed7;color:#fff;border:none;padding:8px 12px;border-radius:6px;cursor:pointer}
+    pre{background:#0f172a;color:#e6eef8;padding:12px;border-radius:6px;white-space:pre-wrap}
+    .flag{padding:8px;border-radius:8px;margin:6px 0}
+    .high{background:#fee2e2;color:#991b1b}
+    .med{background:#fff7ed;color:#92400e}
+    .low{background:#ecfdf5;color:#14532d}
+    label{font-weight:bold}
+    .row{display:flex;gap:12px;flex-wrap:wrap}
+    .col{flex:1;min-width:260px}
+    small{color:#6b7280}
+  </style>
+</head>
+<body>
+  <header>📜 ClauseSense — Fake & Phishing Detector</header>
+  <div class="wrap">
+
+    <div class="card">
+      <h2>1) Upload (Image / PDF / Text)</h2>
+      <form id="uploadForm">
+        <input type="file" id="fileInput" name="file" />
+        <button type="submit">Upload & Analyze</button>
+      </form>
+      <div id="uploadResult"></div>
+    </div>
+
+    <div class="card">
+      <h2>2) Check Website (URL)</h2>
+      <div class="row">
+        <div class="col"><input id="urlInput" placeholder="https://example.com" style="width:100%;padding:8px;border-radius:6px;border:1px solid #d1d5db"/></div>
+        <div><button id="checkUrlBtn">Check URL</button></div>
+      </div>
+      <div id="urlResult"></div>
+    </div>
+
+    <div class="card">
+      <h2>3) Analyze Email (paste raw email / headers / body)</h2>
+      <textarea id="emailText" rows="6" style="width:100%;padding:8px;border-radius:6px;border:1px solid #d1d5db"></textarea>
+      <div style="margin-top:8px"><button id="checkEmailBtn">Analyze Email</button></div>
+      <div id="emailResult"></div>
+    </div>
+
+    <div class="card">
+      <h2>How to interpret</h2>
+      <p><strong>Red (High Risk)</strong> — Strong indicators of fake/phishing/tamper. Do not trust. <br>
+         <strong>Orange (Medium)</strong> — Multiple suspicious signals; investigate. <br>
+         <strong>Green (Low)</strong> — No major red flags detected (not a guarantee).</p>
+      <small>Note: This tool gives signals — for legal/financial decisions consult a human expert.</small>
+    </div>
+
+  </div>
+
+<script>
+document.getElementById("uploadForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const file = document.getElementById("fileInput").files[0];
+  if(!file) { alert("Choose a file"); return; }
+  const fd = new FormData();
+  fd.append("file", file);
+  const resBox = document.getElementById("uploadResult");
+  resBox.innerHTML = "<small>Analyzing…</small>";
+  try {
+    const r = await fetch("/upload", { method:"POST", body: fd });
+    const j = await r.json();
+    // render
+    let html = `<div><strong>Result:</strong> <span style="margin-left:8px">${j.label} (score ${j.score})</span></div>`;
+    if (j.flags && j.flags.length) {
+      html += "<div style='margin-top:8px'>";
+      j.flags.forEach(f=>{
+        const cls = f.weight>=3 ? 'high' : (f.weight>=2 ? 'med' : 'low');
+        html += `<div class="flag ${cls}"><b>${f.reason}</b><div><small>${f.explanation||''}</small></div></div>`;
+      });
+      html += "</div>";
+    }
+    if (j.extractedText) html += `<h4>Extracted text (first 1000 chars)</h4><pre>${(j.extractedText||'').slice(0,1000)}</pre>`;
+    if (j.metadata) html += `<h4>Metadata</h4><pre>${JSON.stringify(j.metadata, null, 2)}</pre>`;
+    html += `<div style="margin-top:6px"><b>EN:</b> ${j.hint_en} <br><b>HI:</b> ${j.hint_hi}</div>`;
+    resBox.innerHTML = html;
+  } catch (err) {
+    resBox.innerHTML = "<div style='color:#b91c1c'>Error analyzing file</div>";
+    console.error(err);
+  }
+});
+
+document.getElementById("checkUrlBtn").addEventListener("click", async () => {
+  const url = document.getElementById("urlInput").value.trim();
+  if(!url) return alert("Enter URL");
+  const resBox = document.getElementById("urlResult");
+  resBox.innerHTML = "<small>Checking URL…</small>";
+  try {
+    const r = await fetch("/check-url", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ url })});
+    const j = await r.json();
+    let html = `<div><strong>Result:</strong> ${j.label} (score ${j.score})</div>`;
+    if (j.flags && j.flags.length) {
+      html += "<div style='margin-top:8px'>";
+      j.flags.forEach(f=>{
+        const cls = f.weight>=3 ? 'high' : (f.weight>=2 ? 'med' : 'low');
+        html += `<div class="flag ${cls}"><b>${f.reason}</b><div><small>${f.explanation||''}</small></div></div>`;
+      });
+      html += "</div>";
+    }
+    html += `<div style="margin-top:6px"><b>EN:</b> ${j.hint_en} <br><b>HI:</b> ${j.hint_hi}</div>`;
+    resBox.innerHTML = html;
+  } catch(e){
+    resBox.innerHTML = "<div style='color:#b91c1c'>Failed to check URL</div>";
+    console.error(e);
+  }
+});
+
+document.getElementById("checkEmailBtn").addEventListener("click", async () => {
+  const raw = document.getElementById("emailText").value;
+  if(!raw) return alert("Paste email content");
+  const resBox = document.getElementById("emailResult");
+  resBox.innerHTML = "<small>Analyzing email…</small>";
+  try {
+    const r = await fetch("/analyze-email", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ raw })});
+    const j = await r.json();
+    let html = `<div><strong>Result:</strong> ${j.label} (score ${j.score})</div>`;
+    if (j.flags && j.flags.length) {
+      html += "<div style='margin-top:8px'>";
+      j.flags.forEach(f=>{
+        const cls = f.weight>=3 ? 'high' : (f.weight>=2 ? 'med' : 'low');
+        html += `<div class="flag ${cls}"><b>${f.reason}</b></div>`;
+      });
+      html += "</div>";
+    }
+    html += `<div style="margin-top:6px"><b>EN:</b> ${j.hint_en} <br><b>HI:</b> ${j.hint_hi}</div>`;
+    resBox.innerHTML = html;
+  } catch(e){
+    resBox.innerHTML = "<div style='color:#b91c1c'>Email analysis failed</div>";
+    console.error(e);
+  }
+});
+</script>
+</body>
+</html>
